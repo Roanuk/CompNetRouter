@@ -26,7 +26,7 @@
 
 
 /*
- * Method: icmpSendNetR
+ * Method: icmpSendUnR
  * This method takes the provided packet and returns first 8 bytes it to its sender in an ICMP Unreachable packet
 */
 void icmpSendUnR(struct sr_instance* sr,
@@ -75,6 +75,37 @@ void icmpSendUnR(struct sr_instance* sr,
 	free(icmpPacket);
 }
 
+void forwardPacket(
+        struct sr_instance* sr,
+        sr_packet* packet,
+        unsigned int len,
+        char* interface,
+        unsigned char* desthwaddr )
+{
+    sr_ethernet_hdr_t* ethernetHdr = (sr_ethernet_hdr_t*)packet;
+    struct ip* ipHdr = (struct ip*)(packet+14);
+    struct in_addr forwarded;
+    int i;
+
+    sr_if* receivingIf = sr_get_interface(sr, interface);
+	//make ethernet header
+	char MACbyte;
+	for(MACbyte = 0; MACbyte < ETHER_ADDR_LEN; MACbyte++)
+	{
+		ethernetHdr->ether_dhost[MACbyte] = desthwaddr[MACbyte]; //put original sender's MAC into the destination field
+		ethernetHdr->ether_shost[MACbyte] = receivingIf->addr[MACbyte]; //put the arriving interface's MAC in the source field
+	}
+
+    sr_send_packet(sr, packet, len, interface);
+
+/*    // log on send
+    forwarded.s_addr = ipHdr->ip_dst.s_addr;
+    printf("<- Forwarded packet with ip_dst %s to ", inet_ntoa(forwarded));
+    for (i = 0; i < ETHER_ADDR_LEN; i++)
+        printf("%2.2x", ethernetHdr->ether_dhost[i]);
+    printf("\n");
+ */
+}
 
 /*---------------------------------------------------------------------
  * Method: sr_init(void)
@@ -305,7 +336,12 @@ void sr_handlepacket_arp(struct sr_instance *sr, uint8_t *pkt,
     {
       /*********************************************************************/
       /* TODO: send all packets on the req->packets linked list            */
-
+      sr_packet* packet = req->packets;
+       while(packet)
+       {
+            forwardPacket(sr, packet, packet->len, packet->interface, arphdr->ar_sha);
+            packet = packet->next;
+       }
 
 
       /*********************************************************************/

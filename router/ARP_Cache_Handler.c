@@ -17,7 +17,7 @@ int main(void) {
 
 void forwardPacket(
         struct sr_instance* sr,
-        uint8_t* packet,
+        sr_packet* packet,
         unsigned int len,
         char* interface,
         uint8_t* desthwaddr )
@@ -41,8 +41,8 @@ void forwardPacket(
 }
 
 
-void checkCachedPackets(struct sr_instance* sr, int cachedArp)
-{
+void checkCachedPackets(struct sr_instance* sr, int )
+{cachedArp
     int i, arpMatch;
     for (i = 0; i < PACKET_CACHE_SIZE; i++) {
         if (packetCache[i].len > 0) {
@@ -63,11 +63,6 @@ void checkCachedPackets(struct sr_instance* sr, int cachedArp)
                         packetCache[i].arps++;
                     }
                 }
-            } else {
-                /* then */
-                icmpSendUnreachable(sr, (uint8_t*)&packetCache[i].packet, packetCache[i].len,
-                        packetCache[i].nexthop->interface, ICMP_HOST_UNREACHABLE);
-                packetCache[i].len = 0;
             }
         }
     }
