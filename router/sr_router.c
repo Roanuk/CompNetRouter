@@ -269,20 +269,20 @@ void sr_handlepacket_arp(struct sr_instance *sr, uint8_t *pkt,
 	* Method: rtLookUp
 	* This method looks up the specified packet's destination in the sr instance's routing table
 */
-rtP rtLookUp(rtP rtHead, sr_ip_hder_t* ipHeader)
+struct sr_rt* rtLookUp(struct sr_rt* rtHead, sr_ip_hdr_t* ipHeader)
 {
-	rtP rtNode = rtHead;
-	rtP rtLongest = rtNode;
+	struct sr_rt* rtNode = rtHead;
+	struct sr_rt* rtLongest = rtNode;
 	char longestLen = 0;
-	char prefixBit, dstBit, maskBit, currentLen;
+	char bit, prefixBit, dstBit, maskBit, currentLen;
 	while(rtNode)
 	{
 		currentLen = 0;
 		for(bit = 31; bit >= 0; bit--)
 		{
 			dstBit = ((ipHeader->ip_dst & (1 << bit)) >> bit);
-			prefixBit = ((rtNode->dest & (1<< bit)) >> bit);
-			maskBit = ((rtNode->mask & (1 << bit)) >> bit);
+			prefixBit = ((rtNode->dest.s_addr & (1<< bit)) >> bit);
+			maskBit = ((rtNode->mask.s_addr & (1 << bit)) >> bit);
 			if((maskBit == 1) && (dstBit == prefixBit))
 			{
 				currentLen++;
@@ -299,7 +299,7 @@ rtP rtLookUp(rtP rtHead, sr_ip_hder_t* ipHeader)
 		}
 		rtNode = rtNode->next;
 	}
-	if(longestLen) //not zero
+	if(longestLen > 0)
 	{
 		return rtLongest;
 	}
@@ -319,40 +319,40 @@ void icmpSendNetUnR(struct sr_instance* sr,
         char* interface/* lent */)
 {
 	unsigned char* icmpPacket = malloc(70);
-	memset(icmpPacket,0,70); //fill with zeros
-	//source packet
+	memset(icmpPacket,0,70); /*fill with zeros*/
+	/*source packet*/
 	sr_ethernet_hdr_t* sEtherHdr = (sr_ethernet_hdr_t *) (packet);
 	sr_ip_hdr_t* sIpHeader = (sr_ip_hdr_t *) (packet + 14);
 	
-	//new packet
+	/*new packet*/
 	sr_ethernet_hdr_t* nEtherHdr = (sr_ethernet_hdr_t *) (icmpPacket);
-	sr_ip_hdr_t* nIpHdr = (sr_ip_hdr_t*) (icmpPacket+14); //ethernet hdr is 14 bytes long
-	sr_icmp_t3_hdr_t* nIcmpHdr = (sr_icmp_t3_hdr_t *) (icmpPacket+34); //ip hdr is 20 bytes long + ehternet hdr (14) = 34 
-	unsigned char nIcmpData = (unsigned char*)(icmpPacket+42) //icmp hdr is 8 bytes long & ip(20) & ethernet(14) headers = 42
-	memcpy(nIcmpData, sIpHeader, 28) //need first 28 bytes of message data for ICMP data response
-	sr_if* receivingIf = sr_get_interface(sr, interface);
-	//make icmp header
-	nIcmpHdr->icmp_type = 3; //unreachable
-	nIcmpHdr->icmp_code = 0; //network code
-	nIcmpHdr->icmp_checksum = 0x0000;
-	nIcmpHdr->icmp_checksum = cksum((void *)(nIcmpHdr),36); //36 is length from header start (34) to end of data (70)
-	//make ip header
+	sr_ip_hdr_t* nIpHdr = (sr_ip_hdr_t*) (icmpPacket+14); /*ethernet hdr is 14 bytes long */
+	sr_icmp_t3_hdr_t* nIcmpHdr = (sr_icmp_t3_hdr_t *) (icmpPacket+34); /* ip hdr is 20 bytes long + ehternet hdr (14) = 34 */
+	unsigned char* nIcmpData = (unsigned char*)(icmpPacket+42); /* icmp hdr is 8 bytes long & ip(20) & ethernet(14) headers = 42 */
+	memcpy(nIcmpData, sIpHeader, 28); /*need first 28 bytes of message data for ICMP data response */
+	struct sr_if* receivingIf = sr_get_interface(sr, interface);
+	/*make icmp header */
+	nIcmpHdr->icmp_type = 3; /*unreachable */
+	nIcmpHdr->icmp_code = 0; /*network code */
+	nIcmpHdr->icmp_sum = 0x0000;
+	nIcmpHdr->icmp_sum = cksum((void *)(nIcmpHdr),36); /*36 is length from header start (34) to end of data (70) */
+	/*make ip header*/
 	nIpHdr->ip_tos = 0;
-	nIpHdr->ip_len = htons(70-14); //(length of packet - ethernet header)
+	nIpHdr->ip_len = htons(70-14); /*(length of packet - ethernet header) */
 	nIpHdr->ip_id = 0;
-	nIpHdr->ip_off = htons(0x4000); //don't fragment flag set
+	nIpHdr->ip_off = htons(0x4000); /*don't fragment flag set */
 	nIpHdr->ip_ttl = 64;
-	nIpHdr->ip_p = 1; //icmp protocol code is 1
+	nIpHdr->ip_p = 1; /*icmp protocol code is 1 */
 	nIpHdr->ip_src = receivingIf->ip;
 	nIpHdr->ip_dst = sIpHeader->ip_src;
 	nIpHdr->ip_sum = 0x0000;
-	nIpHdr->ip_sum = cksum((void*)(nIpHdr), 20); //ip checksum is only over header
-	//make ethernet header
-	char MACbyte;
+	nIpHdr->ip_sum = cksum((void*)(nIpHdr), 20); /*ip checksum is only over header */
+	/*make ethernet header */
+	unsigned char MACbyte;
 	for(MACbyte = 0; MACbyte < ETHER_ADDR_LEN; MACbyte++)
 	{	
-		etherHdr->ether_dhost[MACbyte] = etherHdr->ether_shost[MACbyte]; //put original sender's MAC into the destination field
-		etherHdr->ether_shost[MACbyte] = receivingIf->addr[MACbyte]; //put the arriving interface's MAC in the source field
+		nEtherHdr->ether_dhost[MACbyte] = sEtherHdr->ether_shost[MACbyte]; /*put original sender's MAC into the destination field */
+		nEtherHdr->ether_shost[MACbyte] = receivingIf->addr[MACbyte]; /*put the arriving interface's MAC in the source field */
 	}
 	sr_send_packet(sr, icmpPacket, 70, interface);
 	free(icmpPacket);
@@ -373,7 +373,6 @@ void icmpSendNetUnR(struct sr_instance* sr,
  * the method call.
  *
  *---------------------------------------------------------------------*/
-typedef struct sr_rt* rtP;
 void sr_handlepacket(struct sr_instance* sr,
         uint8_t * packet/* lent */,
         unsigned int len,
@@ -387,26 +386,26 @@ void sr_handlepacket(struct sr_instance* sr,
   printf("*** -> Received packet of length %d \n",len);
 
   /*************************************************************************/
-  /* TODO: Handle packets                           
+  /* TODO: Handle packets */                         
   /*************************************************************************/
   
   
-// BEGIN TASK 2 : Assumes IP packet len has been checked and has good checksum, also ttls of 1 should have been returned as 'time exceeded'
+/* BEGIN TASK 2 : Assumes IP packet len has been checked and has good checksum, also ttls of 1 should have been returned as 'time exceeded' */
 	sr_ip_hdr_t* ipHdr = (sr_ip_hdr_t *)(packet+14);
-	ipHdr->ip_ttl--; //decrement ttl
-	ipHdr->ip_sum = 0; //zero checksum to recalculate
-	ipHdr->ip_sum = cksum((void*)(ipHdr),20); //recalculate checksum
-	rtP rtMatch = rtLookUp(sr->routing_table, ipHdr); //14 is size of ethernet header, offsetting past this to ipHdr
-	if(!rtMatch) //if null then no match made
+	ipHdr->ip_ttl--; /*decrement ttl */
+	ipHdr->ip_sum = 0; /*zero checksum to recalculate */
+	ipHdr->ip_sum = cksum((void*)(ipHdr),20); /*recalculate checksum */
+	struct sr_rt* rtMatch = rtLookUp(sr->routing_table, ipHdr); /*14 is size of ethernet header, offsetting past this to ipHdr */
+	if(!rtMatch) /*if null then no match made */
 	{
 		icmpSendNetUnR(sr, packet, len, interface);
-		return; //packet has been handled
+		return; /*packet has been handled */
 	}
-	else //routing table match found, do something with this interface (interface) and next hop ip (gw)
+	else /*routing table match found, do something with this interface (interface) and next hop ip (gw) */
 	{
-		rtMatch->gw.s_addr; //gets an in_addr element of gw and gives the ip addr element of it(next hop ip)
-		sr_get_interface(sr, rtMatch->interface); //gives the interface record from this routers interface list that rtMatch uses
-//END TASK 2 : Interface and IP address provided here for ARP calls
+		/* rtMatch->gw.s_addr; gets an in_addr element of gw and gives the ip addr element of it(next hop ip) */
+		/* sr_get_interface(sr, rtMatch->interface); gives the interface record from this routers interface list that rtMatch uses */
+/*END TASK 2 : Interface and IP address provided here for ARP calls */
 	}
 }/* end sr_ForwardPacket */
 
