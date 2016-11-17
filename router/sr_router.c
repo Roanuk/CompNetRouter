@@ -24,6 +24,89 @@
 #include "sr_arpcache.h"
 #include "sr_utils.h"
 
+
+/*
+ * Method: icmpSendUnR
+ * This method takes the provided packet and returns first 8 bytes it to its sender in an ICMP Unreachable packet
+*/
+void icmpSendUnR(struct sr_instance* sr,
+        uint8_t * packet/* lent */,
+        unsigned int len,
+        char* interface/* lent */,
+        char typeCode)
+{
+	unsigned char* icmpPacket = malloc(70);
+	memset(icmpPacket,0,70); //fill with zeros
+	//source packet
+	sr_ethernet_hdr_t* sEtherHdr = (sr_ethernet_hdr_t *) (packet);
+	sr_ip_hdr_t* sIpHeader = (sr_ip_hdr_t *) (packet + 14);
+
+	//new packet
+	sr_ethernet_hdr_t* nEtherHdr = (sr_ethernet_hdr_t *) (icmpPacket);
+	sr_ip_hdr_t* nIpHdr = (sr_ip_hdr_t*) (icmpPacket+14); //ethernet hdr is 14 bytes long
+	sr_icmp_t3_hdr_t* nIcmpHdr = (sr_icmp_t3_hdr_t *) (icmpPacket+34); //ip hdr is 20 bytes long + ehternet hdr (14) = 34
+	unsigned char nIcmpData = (unsigned char*)(icmpPacket+42) //icmp hdr is 8 bytes long & ip(20) & ethernet(14) headers = 42
+	memcpy(nIcmpData, sIpHeader, 28) //need first 28 bytes of message data for ICMP data response
+	sr_if* receivingIf = sr_get_interface(sr, interface);
+	//make icmp header
+	nIcmpHdr->icmp_type = 3; //unreachable
+	nIcmpHdr->icmp_code = typeCode; //network code
+	nIcmpHdr->icmp_checksum = 0x0000;
+	nIcmpHdr->icmp_checksum = cksum((void *)(nIcmpHdr),36); //36 is length from header start (34) to end of data (70)
+	//make ip header
+	nIpHdr->ip_tos = 0;
+	nIpHdr->ip_len = htons(70-14); //(length of packet - ethernet header)
+	nIpHdr->ip_id = 0;
+	nIpHdr->ip_off = htons(0x4000); //don't fragment flag set
+	nIpHdr->ip_ttl = 64;
+	nIpHdr->ip_p = 1; //icmp protocol code is 1
+	nIpHdr->ip_src = receivingIf->ip;
+	nIpHdr->ip_dst = sIpHeader->ip_src;
+	nIpHdr->ip_sum = 0x0000;
+	nIpHdr->ip_sum = cksum((void*)(nIpHdr), 20); //ip checksum is only over header
+	//make ethernet header
+	char MACbyte;
+	for(MACbyte = 0; MACbyte < ETHER_ADDR_LEN; MACbyte++)
+	{
+		etherHdr->ether_dhost[MACbyte] = etherHdr->ether_shost[MACbyte]; //put original sender's MAC into the destination field
+		etherHdr->ether_shost[MACbyte] = receivingIf->addr[MACbyte]; //put the arriving interface's MAC in the source field
+	}
+	sr_send_packet(sr, icmpPacket, 70, interface);
+	free(icmpPacket);
+}
+
+void forwardPacket(
+        struct sr_instance* sr,
+        sr_packet* packet,
+        unsigned int len,
+        char* interface,
+        unsigned char* desthwaddr )
+{
+    sr_ethernet_hdr_t* ethernetHdr = (sr_ethernet_hdr_t*)packet;
+    struct ip* ipHdr = (struct ip*)(packet+14);
+    struct in_addr forwarded;
+    int i;
+
+    sr_if* receivingIf = sr_get_interface(sr, interface);
+	//make ethernet header
+	unsigned char MACbyte;
+	for(MACbyte = 0; MACbyte < ETHER_ADDR_LEN; MACbyte++)
+	{
+		ethernetHdr->ether_dhost[MACbyte] = desthwaddr[MACbyte]; //put original sender's MAC into the destination field
+		ethernetHdr->ether_shost[MACbyte] = receivingIf->addr[MACbyte]; //put the arriving interface's MAC in the source field
+	}
+
+    sr_send_packet(sr, packet, len, interface);
+
+/*    // log on send
+    forwarded.s_addr = ipHdr->ip_dst.s_addr;
+    printf("<- Forwarded packet with ip_dst %s to ", inet_ntoa(forwarded));
+    for (i = 0; i < ETHER_ADDR_LEN; i++)
+        printf("%2.2x", ethernetHdr->ether_dhost[i]);
+    printf("\n");
+ */
+}
+
 /*---------------------------------------------------------------------
  * Method: sr_init(void)
  * Scope:  Global
@@ -167,14 +250,18 @@ void sr_handle_arpreq(struct sr_instance *sr, struct sr_arpreq *req,
   {
     if (req->times_sent >= 5)
     {
-      /*********************************************************************/
-      /* TODO: send ICMP host uncreachable to the source address of all    */
-      /* packets waiting on this request                                   */
+        icmpSendUnR(sr, packet, len, interface, 1); //1 is host unreachable code
 
+        /* send away */
+        sr_send_packet(sr, icmpPacket, 70, interface);
 
+        // log on send
+        if (type == ICMP_PORT_UNREACHABLE)
+            printf("<-- ICMP Destination Port Unreachable sent to %s\n", inet_ntoa(newipHdr->ip_dst));
+        if (type == ICMP_HOST_UNREACHABLE)
+            printf("<-- ICMP Destination Host Unreachable sent to %s\n", inet_ntoa(newipHdr->ip_dst));
 
-
-      /*********************************************************************/
+        free(icmpPacket);
 
       sr_arpreq_destroy(&(sr->cache), req);
     }
@@ -249,7 +336,12 @@ void sr_handlepacket_arp(struct sr_instance *sr, uint8_t *pkt,
     {
       /*********************************************************************/
       /* TODO: send all packets on the req->packets linked list            */
-
+      sr_packet* packet = req->packets;
+       while(packet)
+       {
+            forwardPacket(sr, packet, packet->len, packet->interface, arphdr->ar_sha);
+            packet = packet->next;
+       }
 
 
       /*********************************************************************/
@@ -398,7 +490,7 @@ void sr_handlepacket(struct sr_instance* sr,
 	struct sr_rt* rtMatch = rtLookUp(sr->routing_table, ipHdr); /*14 is size of ethernet header, offsetting past this to ipHdr */
 	if(!rtMatch) /*if null then no match made */
 	{
-		icmpSendNetUnR(sr, packet, len, interface);
+		icmpSendNetUnR(sr, packet, len, interface, 0); /* 0 for network unreachable */
 		return; /*packet has been handled */
 	}
 	else /*routing table match found, do something with this interface (interface) and next hop ip (gw) */

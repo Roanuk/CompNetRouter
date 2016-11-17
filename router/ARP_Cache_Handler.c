@@ -15,8 +15,34 @@ int main(void) {
 
 }
 
-void checkCachedPackets(struct sr_instance* sr, int cachedArp)
+void forwardPacket(
+        struct sr_instance* sr,
+        sr_packet* packet,
+        unsigned int len,
+        char* interface,
+        uint8_t* desthwaddr )
 {
+    struct sr_ethernet_hdr* ethernetHdr = (struct sr_ethernet_hdr*)packet;
+    struct ip* ipHdr = (struct ip*)(packet+14);
+    struct in_addr forwarded;
+    int i;
+
+    makeethernet(ethernetHdr, ntohs(ethernetHdr->ether_type),
+            sr_get_interface(sr, interface)->addr, desthwaddr);
+
+    sr_send_packet(sr, packet, len, interface);
+
+    // log on send
+    forwarded.s_addr = ipHdr->ip_dst.s_addr;
+    printf("<- Forwarded packet with ip_dst %s to ", inet_ntoa(forwarded));
+    for (i = 0; i < ETHER_ADDR_LEN; i++)
+        printf("%2.2x", ethernetHdr->ether_dhost[i]);
+    printf("\n");
+}
+
+
+void checkCachedPackets(struct sr_instance* sr, int )
+{cachedArp
     int i, arpMatch;
     for (i = 0; i < PACKET_CACHE_SIZE; i++) {
         if (packetCache[i].len > 0) {
@@ -37,11 +63,6 @@ void checkCachedPackets(struct sr_instance* sr, int cachedArp)
                         packetCache[i].arps++;
                     }
                 }
-            } else {
-                /* then */
-                icmpSendUnreachable(sr, (uint8_t*)&packetCache[i].packet, packetCache[i].len,
-                        packetCache[i].nexthop->interface, ICMP_HOST_UNREACHABLE);
-                packetCache[i].len = 0;
             }
         }
     }
