@@ -76,7 +76,7 @@ void icmpSendUnR(struct sr_instance* sr,
 
 void forwardPacket(
         struct sr_instance* sr,
-        struct sr_packet* packet,
+        uint8_t* packet,
         unsigned int len,
         const char* interface,
         unsigned char* desthwaddr )
@@ -91,7 +91,7 @@ void forwardPacket(
 		ethernetHdr->ether_shost[MACbyte] = receivingIf->addr[MACbyte]; /*put the arriving interface's MAC in the source field */
 	}
 
-    sr_send_packet(sr, (uint8_t*)packet, len, interface);
+    sr_send_packet(sr, packet, len, interface);
 
 /*    
     forwarded.s_addr = ipHdr->ip_dst.s_addr;
@@ -327,7 +327,7 @@ void sr_handlepacket_arp(struct sr_instance *sr, uint8_t *pkt,
       struct sr_packet* packet = req->packets;
        while(packet)
        {
-            forwardPacket(sr, packet, packet->len, packet->iface, arphdr->ar_sha);
+            forwardPacket(sr, packet->buf, packet->len, packet->iface, arphdr->ar_sha);
             packet = packet->next;
        }
 
@@ -444,20 +444,20 @@ void sr_handlepacket(struct sr_instance* sr,
 		/* Examine the packet */ 
 		if (ethertype(packet) == ethertype_arp)
 		{
-			sr_handlepacket_arp(sr, packet, len, rtMatch->interface); 
+			sr_handlepacket_arp(sr, packet, len, sr_get_interface(sr,rtMatch->interface)); 
 		}
 		
 		else 
 		{
-			struct sr_arpentry* entry = sr_arpcache_lookup(sr->cache, rtMatch->gw.s_addr);
+			struct sr_arpentry* entry = sr_arpcache_lookup(&(sr->cache), rtMatch->gw.s_addr);
 		
 				if (entry != NULL)
 			{
-				forwardPacket(sr, packet, len, sr_get_interface(sr, rtMatch->interface),entry->mac);
+				forwardPacket(sr, packet, len, rtMatch->interface,entry->mac);
 			}
 			else
 			{
-				sr_waitforarp(sr, packet, len, rtMatch->gw.s_addr, rtMatch->interface);
+				sr_waitforarp(sr, packet, len, rtMatch->gw.s_addr, sr_get_interface(sr,rtMatch->interface));
 			}
 		}
 
