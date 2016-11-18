@@ -438,5 +438,27 @@ void sr_handlepacket(struct sr_instance* sr,
 		/* sr_get_interface(sr, rtMatch->interface); gives the interface record from this routers interface list that rtMatch uses */
 /*END TASK 2 : Interface and IP address provided here for ARP calls */
 	}
-}/* end sr_ForwardPacket */
+	
+/* TASK 3: */ 
+		
+		/* Examine the packet */ 
+		if (ethertype(packet) == ethertype_arp)
+		{
+			sr_handlepacket_arp(sr, packet, len, rtMatch->interface); 
+		}
+		
+		else 
+		{
+			struct sr_arpentry* entry = sr_arpcache_lookup(sr->cache, rtMatch->gw.s_addr);
+		
+				if (entry != NULL)
+			{
+				forwardPacket(sr, packet, len, sr_get_interface(sr, rtMatch->interface),entry->mac);
+			}
+			else
+			{
+				sr_waitforarp(sr, packet, len, rtMatch->gw.s_addr, rtMatch->interface);
+			}
+		}
 
+}/* end sr_ForwardPacket */
