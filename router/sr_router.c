@@ -78,31 +78,31 @@ void icmpSendUnR(struct sr_instance* sr,
 
 
 void forwardPacket(
-                   struct sr_instance* sr,
-                   struct sr_packet* packet,
-                   unsigned int len,
-                   const char* interface,
-                   unsigned char* desthwaddr )
+       struct sr_instance* sr,
+        uint8_t* packet,
+        unsigned int len,
+        const char* interface,
+        unsigned char* desthwaddr )
 {
     sr_ethernet_hdr_t* ethernetHdr = (sr_ethernet_hdr_t*)packet;
     struct sr_if* receivingIf = sr_get_interface(sr, interface);
-    /*make ethernet header */
-    unsigned char MACbyte;
-    for(MACbyte = 0; MACbyte < ETHER_ADDR_LEN; MACbyte++)
-    {
-        ethernetHdr->ether_dhost[MACbyte] = desthwaddr[MACbyte]; /*put original sender's MAC into the destination field */
-        ethernetHdr->ether_shost[MACbyte] = receivingIf->addr[MACbyte]; /*put the arriving interface's MAC in the source field */
-    }
-    
-    sr_send_packet(sr, (uint8_t*)packet, len, interface);
-    
-    /*
-     forwarded.s_addr = ipHdr->ip_dst.s_addr;
-     printf("<- Forwarded packet with ip_dst %s to ", inet_ntoa(forwarded));
-     for (i = 0; i < ETHER_ADDR_LEN; i++)
-     printf("%2.2x", ethernetHdr->ether_dhost[i]);
-     printf("\n");
-     */
+	/*make ethernet header */
+	unsigned char MACbyte;
+	for(MACbyte = 0; MACbyte < ETHER_ADDR_LEN; MACbyte++)
+	{
+		ethernetHdr->ether_dhost[MACbyte] = desthwaddr[MACbyte]; /*put original sender's MAC into the destination field */
+		ethernetHdr->ether_shost[MACbyte] = receivingIf->addr[MACbyte]; /*put the arriving interface's MAC in the source field */
+	}
+
+    sr_send_packet(sr, packet, len, interface);
+
+/*    
+    forwarded.s_addr = ipHdr->ip_dst.s_addr;
+    printf("<- Forwarded packet with ip_dst %s to ", inet_ntoa(forwarded));
+    for (i = 0; i < ETHER_ADDR_LEN; i++)
+        printf("%2.2x", ethernetHdr->ether_dhost[i]);
+    printf("\n");
+ */
 }
 
 /*---------------------------------------------------------------------
@@ -326,28 +326,26 @@ void sr_handlepacket_arp(struct sr_instance *sr, uint8_t *pkt,
             /* Process pending ARP request entry, if there is one */
             if (req != NULL)
             {
-                /*********************************************************************/
-                /* TODO: send all packets on the req->packets linked list            */
-                struct sr_packet* packet = req->packets;
-                while(packet)
-                {
-                    forwardPacket(sr, packet, packet->len, packet->iface, arphdr->ar_sha);
-                    packet = packet->next;
-                }
-                
-                
-                /*********************************************************************/
-                
-                /* Release ARP request entry */
-                sr_arpreq_destroy(&(sr->cache), req);
-            }
-            break;
-        }
-        default:
-            printf("Unknown ARP opcode => drop packet\n");
-            return;
+      /*********************************************************************/
+      /* TODO: send all packets on the req->packets linked list            */
+      struct sr_packet* packet = req->packets;
+       while(packet)
+       {
+            forwardPacket(sr, packet->buf, packet->len, packet->iface, arphdr->ar_sha);
+            packet = packet->next;
+       }
+
+
+      /*********************************************************************/
+
+      /* Release ARP request entry */
+      sr_arpreq_destroy(&(sr->cache), req);
     }
-    
+  }
+  default:
+    printf("Unknown ARP opcode => drop packet\n");
+    return;
+  }
 } /* -- sr_handlepacket_arp -- */
 
 /*
@@ -494,30 +492,46 @@ void sr_handlepacket(struct sr_instance* sr,
         icmpSendUnR(sr, packet, interface, 3, 0); /* 0 for network unreachable */
         return; /*packet has been handled */
     }
-
-    /******************************************************************************************/
-    /******************************************************************************************/
-
-    
-    
-    /* BEGIN TASK 2 : Assumes IP packet len has been checked and has good checksum, also ttls of 1 should have been returned as 'time exceeded' */
-    sr_ip_hdr_t* ipHdr = (sr_ip_hdr_t *)(packet+14);
-    ipHdr->ip_ttl--; /*decrement ttl */
-    ipHdr->ip_sum = 0; /*zero checksum to recalculate */
-    ipHdr->ip_sum = cksum((void*)(ipHdr),20); /*recalculate checksum */
-    struct sr_rt* rtMatch = rtLookUp(sr->routing_table, ipHdr); /*14 is size of ethernet header, offsetting past this to ipHdr */
-    if(!rtMatch) /*if null then no match made */
-    {
-        icmpSendUnR(sr, packet, interface, 3, 0); /* 0 for network unreachable */
-        return; /*packet has been handled */
-    }
-    else /*routing table match found, do something with this interface (interface) and next hop ip (gw) */
-    {
-        /* rtMatch->gw.s_addr; gets an in_addr element of gw and gives the ip addr element of it(next hop ip) */
-        /* sr_get_interface(sr, rtMatch->interface); gives the interface record from this routers interface list that rtMatch uses */
-        /*END TASK 2 : Interface and IP address provided here for ARP calls */
-    }
-}/* end sr_ForwardPacket */
+  
+/* BEGIN TASK 2 : Assumes IP packet len has been checked and has good checksum, also ttls of 1 should have been returned as 'time exceeded' */
+	sr_ip_hdr_t* ipHdr = (sr_ip_hdr_t *)(packet+14);
+	ipHdr->ip_ttl--; /*decrement ttl */
+	ipHdr->ip_sum = 0; /*zero checksum to recalculate */
+	ipHdr->ip_sum = cksum((void*)(ipHdr),20); /*recalculate checksum */
+	struct sr_rt* rtMatch = rtLookUp(sr->routing_table, ipHdr); /*14 is size of ethernet header, offsetting past this to ipHdr */
+	if(!rtMatch) /*if null then no match made */
+	{
+		icmpSendUnR(sr, packet, interface, 3, 0); /* 0 for network unreachable */
+		return; /*packet has been handled */
+	}
+	else /*routing table match found, do something with this interface (interface) and next hop ip (gw) */
+	{
+		/* rtMatch->gw.s_addr; gets an in_addr element of gw and gives the ip addr element of it(next hop ip) */
+		/* sr_get_interface(sr, rtMatch->interface); gives the interface record from this routers interface list that rtMatch uses */
+/*END TASK 2 : Interface and IP address provided here for ARP calls */
+	}
+	
+/* TASK 3: */ 
+		
+		/* Examine the packet */ 
+		if (ethertype(packet) == ethertype_arp)
+		{
+			sr_handlepacket_arp(sr, packet, len, sr_get_interface(sr,rtMatch->interface)); 
+		}
+		
+		else 
+		{
+			struct sr_arpentry* entry = sr_arpcache_lookup(&(sr->cache), rtMatch->gw.s_addr);
+		
+				if (entry != NULL)
+			{
+				forwardPacket(sr, packet, len, rtMatch->interface,entry->mac);
+			}
+			else
+			{
+				sr_waitforarp(sr, packet, len, rtMatch->gw.s_addr, sr_get_interface(sr,rtMatch->interface));
+			}
+		}
 
 
 
