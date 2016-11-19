@@ -24,39 +24,38 @@
 #include "sr_arpcache.h"
 #include "sr_utils.h"
 
-
 /*
- * Method: icmpSendUnR
+ * Method: icmpSend
  * This method takes the provided packet and returns first 8 bytes it to its sender in an ICMP Unreachable packet
  */
 
-void icmpSendUnR(struct sr_instance* sr,
+void icmpSend(struct sr_instance* sr,
                  uint8_t * packet/* lent */,
                  const char* interface/* lent */,
                  char type,
                  char typeCode)
 {
-    unsigned char* icmpPacket = malloc(70);
-    memset(icmpPacket,0,70); /*fill with zeros */
+    unsigned char* icmpPacket = malloc(28+sizeof(sr_ethernet_hdr_t)+sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t));
+    memset(icmpPacket,0,28+sizeof(sr_ethernet_hdr_t)+sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t)); /*fill with zeros */
     /*source packet */
     sr_ethernet_hdr_t* sEtherHdr = (sr_ethernet_hdr_t *) (packet);
-    sr_ip_hdr_t* sIpHeader = (sr_ip_hdr_t *) (packet + 14);
+    sr_ip_hdr_t* sIpHeader = (sr_ip_hdr_t *) (packet + sizeof(sr_ethernet_hdr_t));
     
     /*new packet */
     sr_ethernet_hdr_t* nEtherHdr = (sr_ethernet_hdr_t *) (icmpPacket);
-    sr_ip_hdr_t* nIpHdr = (sr_ip_hdr_t*) (icmpPacket+14); /*ethernet hdr is 14 bytes long */
-    sr_icmp_t3_hdr_t* nIcmpHdr = (sr_icmp_t3_hdr_t *) (icmpPacket+34); /*ip hdr is 20 bytes long + ehternet hdr (14) = 34 */
-    unsigned char* nIcmpData = (unsigned char*)(icmpPacket+42); /*icmp hdr is 8 bytes long & ip(20) & ethernet(14) headers = 42 */
+    sr_ip_hdr_t* nIpHdr = (sr_ip_hdr_t*) (icmpPacket+sizeof(sr_ethernet_hdr_t)); /*ethernet hdr is 14 bytes long */
+    sr_icmp_t3_hdr_t* nIcmpHdr = (sr_icmp_t3_hdr_t *) (icmpPacket+sizeof(sr_ethernet_hdr_t)+sizeof(sr_ip_hdr_t)); /*ip hdr is 20 bytes long + ehternet hdr (14) = 34 */
+    unsigned char* nIcmpData = (unsigned char*)(icmpPacket+sizeof(sr_ethernet_hdr_t)+sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t)); /*icmp hdr is 8 bytes long & ip(20) & ethernet(14) headers = 42 */
     memcpy(nIcmpData, sIpHeader, 28); /*need first 28 bytes of message data for ICMP data response */
     struct sr_if* receivingIf = sr_get_interface(sr, interface);
     /*make icmp header */
-    nIcmpHdr->icmp_type = type; /*unreachable */
-    nIcmpHdr->icmp_code = typeCode; /*network code */
+    nIcmpHdr->icmp_type = type; /*unreachable 0*/
+    nIcmpHdr->icmp_code = typeCode; /*network code 0*/
     nIcmpHdr->icmp_sum = 0x0000;
-    nIcmpHdr->icmp_sum = cksum((void *)(nIcmpHdr),36); /*36 is length from header start (34) to end of data (70) */
+    nIcmpHdr->icmp_sum = cksum((void *)(nIcmpHdr),28+sizeof(sr_icmp_t3_hdr_t)); /*36 is length from header start (34) to end of data (70) */
     /*make ip header */
     nIpHdr->ip_tos = 0;
-    nIpHdr->ip_len = htons(70-14); /*(length of packet - ethernet header) */
+    nIpHdr->ip_len = htons(28+sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t)); /*(length of packet - ethernet header) */
     nIpHdr->ip_id = 0;
     nIpHdr->ip_off = htons(0x4000); /*don't fragment flag set */
     nIpHdr->ip_ttl = 64;
@@ -64,7 +63,7 @@ void icmpSendUnR(struct sr_instance* sr,
     nIpHdr->ip_src = receivingIf->ip;
     nIpHdr->ip_dst = sIpHeader->ip_src;
     nIpHdr->ip_sum = 0x0000;
-    nIpHdr->ip_sum = cksum((void*)(nIpHdr), 20); /*ip checksum is only over header */
+    nIpHdr->ip_sum = cksum((void*)(nIpHdr), sizeof(sr_ip_hdr_t)); /*ip checksum is only over header */
     /*make ethernet header */
     unsigned char MACbyte;
     for(MACbyte = 0; MACbyte < ETHER_ADDR_LEN; MACbyte++)
@@ -72,7 +71,7 @@ void icmpSendUnR(struct sr_instance* sr,
         nEtherHdr->ether_dhost[MACbyte] = sEtherHdr->ether_shost[MACbyte]; /*put original sender's MAC into the destination field */
         nEtherHdr->ether_shost[MACbyte] = receivingIf->addr[MACbyte]; /*put the arriving interface's MAC in the source field */
     }
-    sr_send_packet(sr, (uint8_t*)icmpPacket, 70, interface);
+    sr_send_packet(sr, (uint8_t*)icmpPacket, 28+sizeof(sr_ethernet_hdr_t)+sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t), interface);
     free(icmpPacket);
 }
 
@@ -251,7 +250,7 @@ void sr_handle_arpreq(struct sr_instance *sr, struct sr_arpreq *req,
             struct sr_packet* packet = req->packets;
             while(packet)
             {
-                icmpSendUnR(sr,(uint8_t*) packet, out_iface->name, 3, 1); /*1 is host unreachable code */
+                icmpSend(sr,(uint8_t*) packet, out_iface->name, 3, 1); /*1 is host unreachable code */
                 packet = packet->next;
             }
             sr_arpreq_destroy(&(sr->cache), req);
@@ -407,25 +406,6 @@ struct sr_rt* rtLookUp(struct sr_rt* rtHead, sr_ip_hdr_t* ipHeader)
  *
  *---------------------------------------------------------------------*/
 
-/* For Task3 */
-/*~~~~~~~~~~~~~~~~~~~~(( CheckSum Function ))~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
-
-uint16_t checksum (const void *_data, int len) {
-    const uint8_t *data = _data;
-    uint32_t sum;
-    
-    for (sum = 0;len >= 2; data += 2, len -= 2)
-        sum += data[0] << 8 | data[1];
-    if (len > 0)
-        sum += data[0] << 8;
-    while (sum > 0xffff)
-        sum = (sum >> 16) + (sum & 0xffff);
-    sum = htons (~sum);
-    return sum ? sum : 0xffff;
-}
-
-/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
-
 void sr_handlepacket(struct sr_instance* sr,
                      uint8_t * packet/* lent */,
                      unsigned int len,
@@ -451,7 +431,7 @@ void sr_handlepacket(struct sr_instance* sr,
         {
             ip_header = (sr_ip_hdr_t*) packet;
             
-            if(ip_header->ip_sum != checksum(ip_header, ip_header->ip_hl *4))
+            if(ip_header->ip_sum != cksum(ip_header, ip_header->ip_hl *4))
             {
                 printf("Packet CheckSUm invaled, drooping packet\n");
                 return;
@@ -459,20 +439,35 @@ void sr_handlepacket(struct sr_instance* sr,
         }
         else
         {
-            icmpSendUnR(sr, packet, interface, 11, 0); /* 0 for network unreachable */
+            icmpSend(packet, len, interface, 11, 0); /* 0 for network unreachable */
             printf("Packet is too short,  ICMP time exceeded \n");
             return;
         }
     }
     
+    struct sr_if* currentnode = sr->if_list;
     
-    
+    while(currentnode)
+    {
+        if(ip_header->ip_dst == currentnode->ip)
+        {
+        
+            icmpSend(packet, len, currentnode->name,0,0);
+        }
+        
+        currentnode = currentnode->next;
+    }    
     if(ip_header->ip_ttl <=1)
     {
         printf("TTL less than or equal 1. Drooping packet\n");
         return;
     }/*decrement ttl */
-
+    
+    if(!rtMatch) /*if null then no match made */
+    {
+        icmpSend(sr, packet, interface, 3, 0); /* 0 for network unreachable */
+        return; /*packet has been handled */
+    }
 /* BEGIN TASK 2 : Assumes IP packet len has been checked and has good checksum, also ttls of 1 should have been returned as 'time exceeded' */
 sr_ip_hdr_t* ipHdr = (sr_ip_hdr_t *)(packet+14);
 ipHdr->ip_ttl--; /*decrement ttl */
@@ -508,4 +503,3 @@ if(!rtMatch) /*if null then no match made */
 		}
 	}
 
-}/* end sr_ForwardPacket */
