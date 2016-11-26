@@ -93,14 +93,6 @@ void forwardPacket(
 	}
 
     sr_send_packet(sr, packet, len, interface);
-
-/*    
-    forwarded.s_addr = ipHdr->ip_dst.s_addr;
-    printf("<- Forwarded packet with ip_dst %s to ", inet_ntoa(forwarded));
-    for (i = 0; i < ETHER_ADDR_LEN; i++)
-        printf("%2.2x", ethernetHdr->ether_dhost[i]);
-    printf("\n");
- */
 }
 
 /*---------------------------------------------------------------------
@@ -430,8 +422,13 @@ void sr_handlepacket(struct sr_instance* sr,
         if(len >= sizeof(sr_ip_hdr_t))
         {
             ip_header = (sr_ip_hdr_t*) packet;
+<<<<<<< HEAD
             
             if(ip_header->ip_sum != cksum(ip_header, ip_header->ip_hl *4))
+=======
+            ip_header->ip_hl *4;
+            if(ip_header->ip_sum != checksum(ip_header, sizeof(sr_ip_hdr_t)))
+>>>>>>> 1edcffa5ded5c7018cc0cf594934d61c74551a08
             {
                 printf("Packet CheckSUm invaled, drooping packet\n");
                 return;
@@ -456,7 +453,14 @@ void sr_handlepacket(struct sr_instance* sr,
         }
         
         currentnode = currentnode->next;
+<<<<<<< HEAD
     }    
+=======
+    }
+        
+    
+    
+>>>>>>> 1edcffa5ded5c7018cc0cf594934d61c74551a08
     if(ip_header->ip_ttl <=1)
     {
         printf("TTL less than or equal 1. Drooping packet\n");
@@ -469,6 +473,7 @@ void sr_handlepacket(struct sr_instance* sr,
         return; /*packet has been handled */
     }
 /* BEGIN TASK 2 : Assumes IP packet len has been checked and has good checksum, also ttls of 1 should have been returned as 'time exceeded' */
+<<<<<<< HEAD
 sr_ip_hdr_t* ipHdr = (sr_ip_hdr_t *)(packet+14);
 ipHdr->ip_ttl--; /*decrement ttl */
 ipHdr->ip_sum = 0; /*zero checksum to recalculate */
@@ -486,20 +491,52 @@ if(!rtMatch) /*if null then no match made */
 	
 	/* Examine the packet */ 
 	if (ethertype(packet) == ethertype_arp)
+=======
+	sr_ip_hdr_t* ipHdr = (sr_ip_hdr_t *)(packet+sizeof(sr_ethernet_hdr_t));
+	ipHdr->ip_ttl--; /*decrement ttl */
+	ipHdr->ip_sum = 0; /*zero checksum to recalculate */
+	ipHdr->ip_sum = cksum((void*)(ipHdr),sizeof(sr_ip_hdr_t)); /*recalculate checksum */
+	struct sr_rt* rtMatch = rtLookUp(sr->routing_table, ipHdr); /*sizeof(sr_ethernet_hdr_t) is size of ethernet header, offsetting past this to ipHdr */
+	if(!rtMatch) /*if null then no match made */
+>>>>>>> 1edcffa5ded5c7018cc0cf594934d61c74551a08
 	{
 		sr_handlepacket_arp(sr, packet, len, sr_get_interface(sr,rtMatch->interface)); 
 	}
+<<<<<<< HEAD
 	else 
 	{
 		struct sr_arpentry* entry = sr_arpcache_lookup(&(sr->cache), rtMatch->gw.s_addr);
 	
 		if (entry != NULL)
+=======
+	else /*routing table match found, do something with this interface (interface) and next hop ip (gw) */
+	{	/*END TASK 2 : Interface and IP address provided here for ARP calls */
+		/* TASK 3: */ 
+		/* Examine the packet */ 
+		if (ethertype(packet) == ethertype_arp)
+>>>>>>> 1edcffa5ded5c7018cc0cf594934d61c74551a08
 		{
 			forwardPacket(sr, packet, len, rtMatch->interface,entry->mac);
 		}
 		else
 		{
+<<<<<<< HEAD
 			sr_waitforarp(sr, packet, len, rtMatch->gw.s_addr, sr_get_interface(sr,rtMatch->interface));
 		}
 	}
+=======
+			struct sr_arpentry* entry = sr_arpcache_lookup(&(sr->cache), rtMatch->gw.s_addr);
+		
+			if (entry != NULL)
+			{
+				forwardPacket(sr, packet, len, rtMatch->interface,entry->mac);
+			}
+			else
+			{
+				sr_waitforarp(sr, packet, len, rtMatch->gw.s_addr, sr_get_interface(sr,rtMatch->interface));
+			}
+		}
+	}
+}
+>>>>>>> 1edcffa5ded5c7018cc0cf594934d61c74551a08
 
