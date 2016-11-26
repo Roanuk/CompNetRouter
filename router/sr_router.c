@@ -419,7 +419,7 @@ void sr_handlepacket(struct sr_instance* sr,
 	/*handle arp packets*/
 	if (ethertype(packet) == ethertype_arp)
 	{
-		sr_handlepacket_arp(sr, packet, len, interface));
+		sr_handlepacket_arp(sr, packet, len, sr_get_interface(sr,interface));
 		return;
 	}
 	/*handle ip packets*/
@@ -438,7 +438,7 @@ void sr_handlepacket(struct sr_instance* sr,
 		}
 		if(ipHdr->ip_ttl <=1) /*checksum was valid but ttl is 1*/
 		{
-			icmpSend(packet, len, interface, 11, 0); /* 11 0 for time exceeded */
+			icmpSend(sr, packet, interface, 11, 0); /* 11 0 for time exceeded */
 			printf("TTL less than or equal 1. Drooping packet\n");
 			return;
 		}
@@ -451,12 +451,12 @@ void sr_handlepacket(struct sr_instance* sr,
 			{
 				if (ip_protocol(packet) == ip_protocol_icmp)
 				{
-					icmpSend(packet, len, currentnode->name,0,0); /*0 0 is ping reply*/
+					icmpSend(sr, packet, currentnode->name,0,0); /*0 0 is ping reply*/
 					return;
 				}
 				else /*is a tcp or udp payload and this router is not a reachable port*/
 				{
-					icmpSend(packet, len, currentnode->name,3,3); /*3 3 is port unreachable*/
+					icmpSend(sr, packet, currentnode->name,3,3); /*3 3 is port unreachable*/
 					return;
 				}
 			}
@@ -468,15 +468,14 @@ void sr_handlepacket(struct sr_instance* sr,
 		struct sr_rt* rtMatch = rtLookUp(sr->routing_table, ipHdr); /*sizeof(sr_ethernet_hdr_t) is size of ethernet header, offsetting past this to ipHdr */
 		if(!rtMatch) /*if null then no match made */
 		{
-			icmpSend(packet, interface, 3, 0); /* 0 for network unreachable */
-			free(newPacket);
+			icmpSend(sr, packet, interface, 3, 0); /* 0 for network unreachable */
 			return;
 		}
 		else /*routing table match found, do something with this interface (interface) and next hop ip (gw) */
 		{	/*END TASK 2 : Interface and IP address provided here for ARP calls */
 			/* TASK 3: */ 
 		/* Examine the packet */ 
-			uint8_t* newPacket = malloc(len); //make deep copy to edit ttl before sending on
+			uint8_t* newPacket = malloc(len); /*make deep copy to edit ttl before sending on*/
 			memcpy(newPacket,packet,len);
 			sr_ip_hdr_t* ipHdr = (sr_ip_hdr_t *)(newPacket+sizeof(sr_ethernet_hdr_t));
 			ipHdr->ip_ttl--; /*decrement ttl */
