@@ -430,10 +430,11 @@ void sr_handlepacket(struct sr_instance* sr,
 			return; /*drop packet that is ip ether type but not large enough to be one*/
         }		
 		sr_ip_hdr_t* ipHdr = (sr_ip_hdr_t *)(packet+sizeof(sr_ethernet_hdr_t));
-		if(ipHdr->ip_sum != cksum((void*)(ipHdr),ipHdr->ip_hl *4))
+		print_hdr_ip((void*)ipHdr);
+		if(cksum((void*)ipHdr,ipHdr->ip_hl *4) != 0xffff) /*a checksum calculated over a header containing it's correct checksum should be 0xffff*/
 		{
-			/*Packet CheckSm invaled, drooping packet\n*/
-			printf("Packet CheckSum invaled, drooping packet\n");
+			/*Packet CheckSum invaled, drooping packet\n*/
+			printf("Packet CheckSum invaled, droping packet\n");
 			return;
 		}
 		if(ipHdr->ip_ttl <=1) /*checksum was valid but ttl is 1*/
