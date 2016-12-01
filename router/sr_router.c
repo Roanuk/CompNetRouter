@@ -35,7 +35,6 @@ void icmpSend(struct sr_instance* sr,
                  char type,
                  char typeCode)
 {
-printf("icmpSend");
     uint8_t* icmpPacket = malloc(sizeof(sr_ethernet_hdr_t)+sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t));
     memset(icmpPacket,0,sizeof(sr_ethernet_hdr_t)+sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t)); /*fill with zeros */
     /*source packet */
@@ -74,7 +73,6 @@ printf("icmpSend");
         nEtherHdr->ether_dhost[MACbyte] = sEtherHdr->ether_shost[MACbyte]; /*put original sender's MAC into the destination field */
         nEtherHdr->ether_shost[MACbyte] = receivingIf->addr[MACbyte]; /*put the arriving interface's MAC in the source field */
     }
-print_hdrs(icmpPacket,sizeof(sr_ethernet_hdr_t)+sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t));
     sr_send_packet(sr, icmpPacket, sizeof(sr_ethernet_hdr_t)+sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t), interface);
     free(icmpPacket);
 }
@@ -379,12 +377,10 @@ struct sr_rt* rtLookUp(struct sr_rt* rtHead, sr_ip_hdr_t* ipHeader)
 
     if(longestLen > 0)
     {
-	printf("Match of length %i",longestLen);
         return rtLongest;
     }
     else
     {
-	printf("No match");
         return NULL;
     }
 }
@@ -462,13 +458,11 @@ void sr_handlepacket(struct sr_instance* sr,
 			{
 				if (ipHdr->ip_p == ip_protocol_icmp)
 				{
-					printf("icmp 00");
 					icmpSend(sr, packet, currentnode->name,0,0); /*0 0 is ping reply*/
 					return;
 				}
 				else /*is a tcp or udp payload and this router is not a reachable port*/
 				{
-					printf("icmp 33");
 					icmpSend(sr, packet, currentnode->name,3,3); /*3 3 is port unreachable*/
 					return;
 				}
@@ -481,7 +475,6 @@ void sr_handlepacket(struct sr_instance* sr,
 		struct sr_rt* rtMatch = rtLookUp(sr->routing_table, ipHdr); /*sizeof(sr_ethernet_hdr_t) is size of ethernet header, offsetting past this to ipHdr */
 		if(!rtMatch) /*if null then no match made */
 		{
-			printf("icmp 30");
 			icmpSend(sr, packet, interface, 3, 0); /* 0 for network unreachable */
 			return;
 		}
