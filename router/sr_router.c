@@ -35,8 +35,9 @@ void icmpSend(struct sr_instance* sr,
                  char type,
                  char typeCode)
 {
-    uint8_t* icmpPacket = malloc(28+sizeof(sr_ethernet_hdr_t)+sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t));
-    memset(icmpPacket,0,28+sizeof(sr_ethernet_hdr_t)+sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t)); /*fill with zeros */
+printf("icmpSend");
+    uint8_t* icmpPacket = malloc(sizeof(sr_ethernet_hdr_t)+sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t));
+    memset(icmpPacket,0,sizeof(sr_ethernet_hdr_t)+sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t)); /*fill with zeros */
     /*source packet */
     sr_ethernet_hdr_t* sEtherHdr = (sr_ethernet_hdr_t *) (packet);
     sr_ip_hdr_t* sIpHeader = (sr_ip_hdr_t *) (packet + sizeof(sr_ethernet_hdr_t));
@@ -45,17 +46,18 @@ void icmpSend(struct sr_instance* sr,
     sr_ethernet_hdr_t* nEtherHdr = (sr_ethernet_hdr_t *) (icmpPacket);
     sr_ip_hdr_t* nIpHdr = (sr_ip_hdr_t*) (icmpPacket+sizeof(sr_ethernet_hdr_t)); /*ethernet hdr is 14 bytes long */
     sr_icmp_t3_hdr_t* nIcmpHdr = (sr_icmp_t3_hdr_t *) (icmpPacket+sizeof(sr_ethernet_hdr_t)+sizeof(sr_ip_hdr_t)); /*ip hdr is 20 bytes long + ehternet hdr (14) = 34 */
-    uint8_t* nIcmpData = (uint8_t*)(icmpPacket+sizeof(sr_ethernet_hdr_t)+sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t)); /*icmp hdr is 8 bytes long & ip(20) & ethernet(14) headers = 42 */
-    memcpy(nIcmpData, sIpHeader, 28); /*need first 28 bytes of message data for ICMP data response */
+    memcpy(nIcmpHdr->data, sIpHeader, 28); /*need first 28 bytes of message data for ICMP data response */
     struct sr_if* receivingIf = sr_get_interface(sr, interface);
     /*make icmp header */
     nIcmpHdr->icmp_type = type; /*unreachable 0*/
     nIcmpHdr->icmp_code = typeCode; /*network code 0*/
     nIcmpHdr->icmp_sum = 0x0000;
-    nIcmpHdr->icmp_sum = cksum((void *)(nIcmpHdr),28+sizeof(sr_icmp_t3_hdr_t)); /*36 is length from header start (34) to end of data (70) */
+    nIcmpHdr->icmp_sum = cksum((void *)(nIcmpHdr),sizeof(sr_icmp_t3_hdr_t)); /*36 is length from header start (34) to end of data (70) */
     /*make ip header */
+    nIpHdr->ip_hl = 5;
+    nIpHdr->ip_v = 4;
     nIpHdr->ip_tos = 0;
-    nIpHdr->ip_len = htons(28+sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t)); /*(length of packet - ethernet header) */
+    nIpHdr->ip_len = htons(sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t)); /*(length of packet - ethernet header) */
     nIpHdr->ip_id = 0;
     nIpHdr->ip_off = htons(0x4000); /*don't fragment flag set */
     nIpHdr->ip_ttl = 64;
@@ -66,12 +68,14 @@ void icmpSend(struct sr_instance* sr,
     nIpHdr->ip_sum = cksum((void*)(nIpHdr), sizeof(sr_ip_hdr_t)); /*ip checksum is only over header */
     /*make ethernet header */
     unsigned char MACbyte;
+    nEtherHdr->ether_type = sEtherHdr->ether_type;
     for(MACbyte = 0; MACbyte < ETHER_ADDR_LEN; MACbyte++)
     {
         nEtherHdr->ether_dhost[MACbyte] = sEtherHdr->ether_shost[MACbyte]; /*put original sender's MAC into the destination field */
         nEtherHdr->ether_shost[MACbyte] = receivingIf->addr[MACbyte]; /*put the arriving interface's MAC in the source field */
     }
-    sr_send_packet(sr, icmpPacket, 28+sizeof(sr_ethernet_hdr_t)+sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t), interface);
+print_hdrs(icmpPacket,sizeof(sr_ethernet_hdr_t)+sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t));
+    sr_send_packet(sr, icmpPacket, sizeof(sr_ethernet_hdr_t)+sizeof(sr_ip_hdr_t)+sizeof(sr_icmp_t3_hdr_t), interface);
     free(icmpPacket);
 }
 
@@ -169,8 +173,6 @@ void sr_send_arpreply(struct sr_instance *sr, uint8_t *orig_pkt,
     reply_arphdr->ar_sip = src_iface->ip;
     
     /* Send ARP reply */
-    printf("Send ARP reply\n");
-    print_hdrs(reply_pkt, reply_len);
     sr_send_packet(sr, (uint8_t*)reply_pkt, reply_len, src_iface->name);
     free(reply_pkt);
 } /* -- sr_send_arpreply -- */
@@ -217,8 +219,6 @@ void sr_send_arprequest(struct sr_instance *sr, struct sr_arpreq *req,
     reqst_arphdr->ar_tip = req->ip;
     
     /* Send ARP request */
-    printf("Send ARP request\n");
-    print_hdrs(reqst_pkt, reqst_len);
     sr_send_packet(sr, (uint8_t*)reqst_pkt, reqst_len, out_iface->name);
     free(reqst_pkt);
 } /* -- sr_send_arprequest -- */
@@ -340,8 +340,9 @@ void sr_handlepacket_arp(struct sr_instance *sr, uint8_t *pkt,
 struct sr_rt* rtLookUp(struct sr_rt* rtHead, sr_ip_hdr_t* ipHeader)
 {
     struct sr_rt* rtNode = rtHead;
-    struct sr_rt* rtLongest = rtNode;
-    char longestLen = 0;
+    struct sr_rt* rtLongest = NULL;	
+    struct sr_rt* rtCurLongest = rtNode;
+    char longestLen = 0, curLongLen = 0;
     char bit, prefixBit, dstBit, maskBit, currentLen;
     while(rtNode)
     {
@@ -354,29 +355,39 @@ struct sr_rt* rtLookUp(struct sr_rt* rtHead, sr_ip_hdr_t* ipHeader)
             if((maskBit == 1) && (dstBit == prefixBit))
             {
                 currentLen++;
-                if(currentLen > longestLen)
+                if(currentLen >longestLen)
                 {
-                    longestLen = currentLen;
-                    rtLongest = rtNode;
+                    curLongLen = currentLen;
+                    rtCurLongest = rtNode;
                 }
             }
+	    else if(maskBit == 1)
+	    {
+		curLongLen = longestLen;
+		rtCurLongest = rtLongest;
+		break;
+	    }
             else
             {
                 break;
             }
         }
+	longestLen = curLongLen;
+	rtLongest = rtCurLongest;
         rtNode = rtNode->next;
     }
+
     if(longestLen > 0)
     {
+	printf("Match of length %i",longestLen);
         return rtLongest;
     }
     else
     {
+	printf("No match");
         return NULL;
     }
 }
-
 /*---------------------------------------------------------------------
  * Method: sr_handlepacket(uint8_t* p,char* interface)
  * Scope:  Global
@@ -430,7 +441,6 @@ void sr_handlepacket(struct sr_instance* sr,
 			return; /*drop packet that is ip ether type but not large enough to be one*/
         }		
 		sr_ip_hdr_t* ipHdr = (sr_ip_hdr_t *)(packet+sizeof(sr_ethernet_hdr_t));
-		print_hdr_ip((void*)ipHdr);
 		if(cksum((void*)ipHdr,ipHdr->ip_hl *4) != 0xffff) /*a checksum calculated over a header containing it's correct checksum should be 0xffff*/
 		{
 			/*Packet CheckSum invaled, drooping packet\n*/
@@ -450,13 +460,15 @@ void sr_handlepacket(struct sr_instance* sr,
 		{
 			if(ipHdr->ip_dst == currentnode->ip)
 			{
-				if (ip_protocol(packet) == ip_protocol_icmp)
+				if (ipHdr->ip_p == ip_protocol_icmp)
 				{
+					printf("icmp 00");
 					icmpSend(sr, packet, currentnode->name,0,0); /*0 0 is ping reply*/
 					return;
 				}
 				else /*is a tcp or udp payload and this router is not a reachable port*/
 				{
+					printf("icmp 33");
 					icmpSend(sr, packet, currentnode->name,3,3); /*3 3 is port unreachable*/
 					return;
 				}
@@ -469,6 +481,7 @@ void sr_handlepacket(struct sr_instance* sr,
 		struct sr_rt* rtMatch = rtLookUp(sr->routing_table, ipHdr); /*sizeof(sr_ethernet_hdr_t) is size of ethernet header, offsetting past this to ipHdr */
 		if(!rtMatch) /*if null then no match made */
 		{
+			printf("icmp 30");
 			icmpSend(sr, packet, interface, 3, 0); /* 0 for network unreachable */
 			return;
 		}
