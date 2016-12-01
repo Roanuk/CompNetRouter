@@ -1,0 +1,20 @@
+Ping 192.168.2.2 from client succeeds -> client ping -c 3 192.168.2.2
+Ping packet is forwarded to the server ^
+Handle ARP request ^
+Packets are forwarded when they match a subnet routing entry ^
+Route lookups perform a longest prefix match ^
+Ping 172.64.3.10 from server1 succeeds -> server1 ping -c 3 172.64.3.10
+wget 192.168.2.2 from client succeeds -> client wget http://192.168.2.2
+Forwarded UDP packet reaches server1 -> 
+	server1 sudo tcpdump -n -i server1-eth0 -vv (run on mininet)[shows output]
+	iperf -s -u (run on server1)
+	iperf -u -c 192.168.2.2 (run on server2)
+Forwarded UDP packet has decreased TTL ^
+Forwarded UDP packet has re-calculated checksum ^
+
+Drop IP packet with wrong checksum ->
+Time exceeded message is generated when TTL=1 ->
+Network unreachable message is generated when no routing entry matches ->
+Host unreachable message is generated when ARP resolution fails ->
+Packets are forwarded to the gateway ->
+Traceroute succeeds ->
